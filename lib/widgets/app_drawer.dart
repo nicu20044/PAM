@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../data/catalog.dart';
+import '../cubits/cart_cubit.dart';
+import '../cubits/catalog_cubit.dart';
+import '../cubits/favorites_cubit.dart';
 import '../screens/cart_screen.dart';
-import '../screens/product_list_screen.dart';
-import '../state/cart_state.dart';
-import '../state/favorites_state.dart';
+import '../screens/favorites_screen.dart';
+import '../screens/products_screen.dart';
 import '../theme/app_theme.dart';
 
 class AppDrawer extends StatelessWidget {
@@ -18,8 +19,10 @@ class AppDrawer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cart = context.watch<CartState>();
-    final favs = context.watch<FavoritesState>();
+    final cartCount = context.watch<CartCubit>().count;
+    final favCount = context.watch<FavoritesCubit>().state.length;
+    final all = context.read<CatalogCubit>().state.data?.allProducts ?? [];
+
     return Drawer(
       backgroundColor: Colors.white,
       child: SafeArea(
@@ -37,34 +40,29 @@ class AppDrawer extends StatelessWidget {
               onTap: () => Navigator.pop(context),
             ),
             ListTile(
-              leading: const Icon(Icons.grid_view_rounded),
-              title: const Text('All products'),
+              leading: const Icon(Icons.search),
+              title: const Text('Search products'),
               onTap: () => _go(
-                  context,
-                  const ProductListScreen(
-                      title: 'All products', products: Catalog.all)),
+                  context, ProductsScreen(title: 'All products', products: all)),
             ),
             ListTile(
               leading: const Icon(Icons.favorite_border),
               title: const Text('Favorites'),
-              trailing: favs.ids.isEmpty
+              trailing: favCount == 0
                   ? null
-                  : Text('${favs.ids.length}',
+                  : Text('$favCount',
                   style: const TextStyle(color: AppColors.grey)),
-              onTap: () => _go(
-                  context,
-                  const ProductListScreen(
-                      title: 'Favorites', products: [], favoritesOnly: true)),
+              onTap: () => _go(context, const FavoritesScreen()),
             ),
             ListTile(
               leading: const Icon(Icons.shopping_bag_outlined),
               title: const Text('Cart'),
-              trailing: cart.count == 0
+              trailing: cartCount == 0
                   ? null
                   : CircleAvatar(
                 radius: 11,
                 backgroundColor: AppColors.dark,
-                child: Text('${cart.count}',
+                child: Text('$cartCount',
                     style: const TextStyle(
                         fontSize: 11, color: Colors.white)),
               ),

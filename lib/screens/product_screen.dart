@@ -1,11 +1,11 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../data/catalog.dart';
+import '../cubits/cart_cubit.dart';
+import '../cubits/catalog_cubit.dart';
+import '../cubits/favorites_cubit.dart';
 import '../models/product.dart';
-import '../state/cart_state.dart';
-import '../state/favorites_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_image.dart';
 import '../widgets/product_tile.dart';
@@ -24,7 +24,7 @@ class _ProductScreenState extends State<ProductScreen> {
   static const _heroHeight = 330.0;
 
   int _image = 0;
-  int _color = 0;
+  late int _color;
   late String _size;
   late List<Review> _reviews;
 
@@ -33,12 +33,15 @@ class _ProductScreenState extends State<ProductScreen> {
   @override
   void initState() {
     super.initState();
-    _size = p.sizes.contains('L') ? 'L' : p.sizes.first;
+    _color = p.selectedColor.clamp(0, p.colors.length - 1);
+    _size = (p.sizes.contains(p.selectedSize) && p.isSizeAvailable(p.selectedSize))
+        ? p.selectedSize
+        : p.sizes.firstWhere(p.isSizeAvailable, orElse: () => p.sizes.first);
     _reviews = [...p.reviews];
   }
 
   void _addToCart() {
-    context.read<CartState>().add(p, _color, _size);
+    context.read<CartCubit>().add(p, _color, _size);
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
@@ -106,10 +109,11 @@ class _ProductScreenState extends State<ProductScreen> {
                 Navigator.pop(
                   ctx,
                   Review(
-                    name: 'You',
+                    id: 'local-${DateTime.now().millisecondsSinceEpoch}',
+                    author: 'You',
                     time: 'now',
                     text: controller.text.trim(),
-                    stars: stars,
+                    rating: stars.toDouble(),
                   ),
                 );
               },
@@ -125,7 +129,7 @@ class _ProductScreenState extends State<ProductScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final favs = context.watch<FavoritesState>();
+    final isFav = context.watch<FavoritesCubit>().state.contains(p.id);
     final topPad = MediaQuery.of(context).padding.top;
     final bottomPad = MediaQuery.of(context).padding.bottom;
 
@@ -159,11 +163,9 @@ class _ProductScreenState extends State<ProductScreen> {
               children: [
                 _roundButton(Icons.chevron_left, () => Navigator.pop(context)),
                 _roundButton(
-                  favs.isFavorite(p.id) ? Icons.favorite : Icons.favorite_border,
-                      () => favs.toggle(p.id),
-                  color: favs.isFavorite(p.id)
-                      ? const Color(0xFFE5484D)
-                      : AppColors.ink,
+                  isFav ? Icons.favorite : Icons.favorite_border,
+                      () => context.read<FavoritesCubit>().toggle(p.id),
+                  color: isFav ? const Color(0xFFE5484D) : AppColors.ink,
                 ),
               ],
             ),
@@ -233,7 +235,6 @@ class _ProductScreenState extends State<ProductScreen> {
     );
   }
 
-  // ---------------------------------------------------------------- hero
   Widget _hero() {
     return Stack(
       fit: StackFit.expand,
@@ -280,8 +281,10 @@ class _ProductScreenState extends State<ProductScreen> {
     );
   }
 
-  // --------------------------------------------------------------- sheet
   Widget _sheet(double bottomPad) {
+    final similar = context.read<CatalogCubit>().state.data?.similarFor(p) ??
+        const <Product>[];
+
     return Container(
       width: double.infinity,
       padding: EdgeInsets.fromLTRB(22, 24, 22, 110 + bottomPad),
@@ -357,21 +360,21 @@ class _ProductScreenState extends State<ProductScreen> {
             initiallyExpanded: true,
             child: _reviewsBlock(),
           ),
-          ExpandableSection(
-            title: 'Similar Product',
-            initiallyExpanded: true,
-            child: SizedBox(
-              height: 210,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                clipBehavior: Clip.none,
-                itemCount: Catalog.similar(p).length,
-                separatorBuilder: (_, __) => const SizedBox(width: 14),
-                itemBuilder: (_, i) =>
-                    ProductTile(product: Catalog.similar(p)[i]),
+          if (similar.isNotEmpty)
+            ExpandableSection(
+              title: 'Similar Product',
+              initiallyExpanded: true,
+              child: SizedBox(
+                height: 210,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  clipBehavior: Clip.none,
+                  itemCount: similar.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 14),
+                  itemBuilder: (_, i) => ProductTile(product: similar[i]),
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -388,7 +391,7 @@ class _ProductScreenState extends State<ProductScreen> {
         height: 30,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: p.colors[i],
+          color: p.colors[i].color,
           border: sel ? Border.all(color: Colors.white, width: 3) : null,
           boxShadow: sel
               ? const [
@@ -405,9 +408,10 @@ class _ProductScreenState extends State<ProductScreen> {
 
   Widget _sizeDot(String s) {
     final sel = s == _size;
+    final available = p.isSizeAvailable(s);
     final long = s.length > 2;
     return GestureDetector(
-      onTap: () => setState(() => _size = s),
+      onTap: available ? () => setState(() => _size = s) : null,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         margin: const EdgeInsets.only(left: 10),
@@ -424,7 +428,10 @@ class _ProductScreenState extends State<ProductScreen> {
           style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w600,
-            color: sel ? Colors.white : AppColors.grey,
+            color: sel
+                ? Colors.white
+                : (available ? AppColors.grey : const Color(0xFFD5D5DA)),
+            decoration: available ? null : TextDecoration.lineThrough,
           ),
         ),
       ),
@@ -463,7 +470,8 @@ class _ProductScreenState extends State<ProductScreen> {
           ],
         ),
         const SizedBox(height: 8),
-        for (int i = 0; i < 5; i++) _ratingBar(5 - i, p.ratingDistribution[i]),
+        for (int i = 0; i < p.ratingBreakdown.length && i < 5; i++)
+          _ratingBar(5 - i, p.ratingBreakdown[i]),
         const SizedBox(height: 10),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -484,6 +492,12 @@ class _ProductScreenState extends State<ProductScreen> {
           ],
         ),
         const SizedBox(height: 20),
+        if (_reviews.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 8),
+            child: Text('No reviews yet. Be the first to write one!',
+                style: TextStyle(fontSize: 12, color: AppColors.grey)),
+          ),
         for (final r in _reviews) _reviewTile(r),
       ],
     );
@@ -548,11 +562,11 @@ class _ProductScreenState extends State<ProductScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(r.name,
+                    Text(r.author,
                         style: const TextStyle(
                             fontSize: 12.5, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 3),
-                    Stars(rating: r.stars.toDouble(), size: 11),
+                    Stars(rating: r.rating, size: 11),
                   ],
                 ),
               ),

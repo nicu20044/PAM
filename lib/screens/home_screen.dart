@@ -1,8 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../data/catalog.dart';
+import '../cubits/catalog_cubit.dart';
 import '../models/product.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_drawer.dart';
@@ -10,18 +11,22 @@ import '../widgets/app_image.dart';
 import '../widgets/collection_cards.dart';
 import '../widgets/product_tile.dart';
 import '../widgets/section_header.dart';
-import 'product_list_screen.dart';
+import '../widgets/status_views.dart';
+import 'products_screen.dart';
 
-const _categories = [
-  ('women', 'Women', Icons.female),
-  ('men', 'Men', Icons.male),
-  ('accessories', 'Accessories', Icons.visibility_outlined),
-  ('beauty', 'Beauty', Icons.spa_outlined),
-];
+IconData _iconFor(String id) => switch (id) {
+  'women' => Icons.female,
+  'men' => Icons.male,
+  'accessories' => Icons.visibility_outlined,
+  'beauty' => Icons.spa_outlined,
+  _ => Icons.category_outlined,
+};
 
-const _banners = [
-  ('Autumn\nCollection\n2021', 'banner_1.png', Color(0xFFC98B7B)),
-];
+/// "The Office Life" -> "The Office\nLife"
+String _breakLast(String t) {
+  final i = t.lastIndexOf(' ');
+  return i < 0 ? t : '${t.substring(0, i)}\n${t.substring(i + 1)}';
+}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -31,7 +36,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  String _category = 'women';
   bool _unread = true;
   int _bannerIndex = 0;
   final _bannerController = PageController();
@@ -40,15 +44,14 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    if (_banners.length > 1) {
-      _timer = Timer.periodic(const Duration(seconds: 5), (_) {
-        if (!_bannerController.hasClients) return;
-        final next = (_bannerIndex + 1) % _banners.length;
-        _bannerController.animateToPage(next,
-            duration: const Duration(milliseconds: 400),
-            curve: Curves.easeInOut);
-      });
-    }
+    _timer = Timer.periodic(const Duration(seconds: 5), (_) {
+      final slides =
+          context.read<CatalogCubit>().state.data?.hero.slides ?? 1;
+      if (slides < 2 || !_bannerController.hasClients) return;
+      final next = (_bannerIndex + 1) % slides;
+      _bannerController.animateToPage(next,
+          duration: const Duration(milliseconds: 400), curve: Curves.easeInOut);
+    });
   }
 
   @override
@@ -62,10 +65,7 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ProductListScreen(
-          title: title,
-          products: products,
-        ),
+        builder: (_) => ProductsScreen(title: title, products: products),
       ),
     );
   }
@@ -106,113 +106,22 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final featured = Catalog.featured(_category);
-
     return Scaffold(
       drawer: const AppDrawer(),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.only(bottom: 24),
+        child: Column(
           children: [
             _topBar(),
-            const SizedBox(height: 22),
-            _categoryRow(),
-            const SizedBox(height: 22),
-            _bannerCarousel(),
-            const SizedBox(height: 26),
-            SectionHeader(
-              title: 'Feature Products',
-              onShowAll: () => _openList('Feature Products', featured),
-            ),
-            const SizedBox(height: 14),
-            SizedBox(
-              height: 205,
-              child: featured.isEmpty
-                  ? const Center(child: Text('No products yet'))
-                  : ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                itemCount: featured.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 16),
-                itemBuilder: (_, i) => ProductTile(product: featured[i]),
-              ),
-            ),
-            const SizedBox(height: 24),
-            // Bannerul "Hang out & Party" - imaginea contine deja tot designul
-            GestureDetector(
-              onTap: () =>
-                  _openList('New Collection', Catalog.byCategory('women')),
-              child: AspectRatio(
-                aspectRatio: 375 / 158,
-                child: AppImage('promo_hangout.png'),
-              ),
-            ),
-            const SizedBox(height: 28),
-            SectionHeader(
-              title: 'Recommended',
-              onShowAll: () => _openList('Recommended', Catalog.recommended()),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              height: 78,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.fromLTRB(20, 6, 20, 10),
-                itemCount: Catalog.recommended().length,
-                separatorBuilder: (_, __) => const SizedBox(width: 12),
-                itemBuilder: (_, i) =>
-                    RecommendedCard(product: Catalog.recommended()[i]),
-              ),
-            ),
-            const SizedBox(height: 22),
-            SectionHeader(
-              title: 'Top Collection',
-              onShowAll: () => _openList('Top Collection', Catalog.all),
-            ),
-            const SizedBox(height: 14),
-            CollectionCard(
-              height: 118,
-              tag: 'Sale up to 40%',
-              title: 'FOR SLIM\n& BEAUTY',
-              image: 'promo_slim.png',
-              circleColor: const Color(0xFFEDEBE3),
-              onTap: () =>
-                  _openList('Sale up to 40%', Catalog.byCategory('women')),
-            ),
-            const SizedBox(height: 14),
-            CollectionCard(
-              height: 175,
-              boldTitle: true,
-              tag: 'Summer Collection 2021',
-              title: 'Most sexy\n& fabulous\ndesign',
-              image: 'promo_summer.png',
-              circleColor: const Color(0xFFEDEBE3),
-              onTap: () =>
-                  _openList('Summer Collection', Catalog.byCategory('women')),
-            ),
-            const SizedBox(height: 14),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(
-                children: [
-                  CollectionTile(
-                    label: 'T-Shirts',
-                    title: 'The Office\nLife',
-                    image: 'tile_tshirts.png',
-                    imageLeft: true,
-                    onTap: () =>
-                        _openList('T-Shirts', Catalog.byCategory('women')),
+            Expanded(
+              child: BlocBuilder<CatalogCubit, CatalogState>(
+                builder: (context, state) => switch (state.status) {
+                  CatalogStatus.loading => const LoadingView(),
+                  CatalogStatus.error => ErrorView(
+                    message: state.error ?? 'Unknown error',
+                    onRetry: () => context.read<CatalogCubit>().load(),
                   ),
-                  const SizedBox(width: 10),
-                  CollectionTile(
-                    label: 'Dresses',
-                    title: 'Elegant\nDesign',
-                    image: 'tile_dresses.png',
-                    imageLeft: false,
-                    onTap: () =>
-                        _openList('Dresses', Catalog.byCategory('women')),
-                  ),
-                ],
+                  CatalogStatus.success => _content(context, state),
+                },
               ),
             ),
           ],
@@ -221,7 +130,105 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _content(BuildContext context, CatalogState state) {
+    final data = state.data!;
+    final featured = state.featuredForCategory;
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
+      children: [
+        const SizedBox(height: 8),
+        _categoryRow(context, data.categories, state.category),
+        const SizedBox(height: 22),
+        _bannerCarousel(data.hero),
+        const SizedBox(height: 26),
+        SectionHeader(
+          title: 'Feature Products',
+          onShowAll: () => _openList('Feature Products', featured),
+        ),
+        const SizedBox(height: 14),
+        SizedBox(
+          height: 205,
+          child: featured.isEmpty
+              ? const EmptyView(
+            icon: Icons.checkroom_outlined,
+            title: 'No products in this category yet',
+          )
+              : ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            itemCount: featured.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 16),
+            itemBuilder: (_, i) => ProductTile(product: featured[i]),
+          ),
+        ),
+        const SizedBox(height: 24),
+        GestureDetector(
+          onTap: () => _openList('New Collection', data.allProducts),
+          child: AspectRatio(
+            aspectRatio: 375 / 158,
+            child: AppImage(data.newCollection.image),
+          ),
+        ),
+        const SizedBox(height: 28),
+        SectionHeader(
+          title: 'Recommended',
+          onShowAll: () => _openList('Recommended', data.recommended),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 78,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(20, 6, 20, 10),
+            itemCount: data.recommended.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 12),
+            itemBuilder: (_, i) =>
+                RecommendedCard(product: data.recommended[i]),
+          ),
+        ),
+        const SizedBox(height: 22),
+        SectionHeader(
+          title: 'Top Collection',
+          onShowAll: () => _openList('Top Collection', data.allProducts),
+        ),
+        const SizedBox(height: 14),
+        for (final (i, c) in data.topCollections.indexed) ...[
+          CollectionCard(
+            height: i == 0 ? 118 : 175,
+            boldTitle: i != 0,
+            tag: c.label,
+            title: c.title.replaceAll(' & ', '\n& '),
+            image: c.image,
+            circleColor: const Color(0xFFEDEBE3),
+            onTap: () => _openList(c.label, data.allProducts),
+          ),
+          const SizedBox(height: 14),
+        ],
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Row(
+            children: [
+              for (final (i, c) in data.categoryPromos.indexed) ...[
+                if (i > 0) const SizedBox(width: 10),
+                CollectionTile(
+                  label: c.label,
+                  title: _breakLast(c.title),
+                  image: c.image,
+                  imageLeft: i.isEven,
+                  onTap: () => _openList(c.label, data.allProducts),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _topBar() {
+    final name =
+        context.watch<CatalogCubit>().state.data?.storeName ?? 'GemStore';
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       child: Row(
@@ -244,8 +251,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
-          const Text('GemStore',
-              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+          Text(name,
+              style:
+              const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
           GestureDetector(
             onTap: _showNotifications,
             behavior: HitTestBehavior.opaque,
@@ -275,15 +283,16 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _categoryRow() {
+  Widget _categoryRow(
+      BuildContext context, List<CategoryItem> cats, String selectedId) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: _categories.map((c) {
-          final selected = c.$1 == _category;
+        children: cats.map((c) {
+          final selected = c.id == selectedId;
           return GestureDetector(
-            onTap: () => setState(() => _category = c.$1),
+            onTap: () => context.read<CatalogCubit>().selectCategory(c.id),
             behavior: HitTestBehavior.opaque,
             child: SizedBox(
               width: 70,
@@ -301,13 +310,13 @@ class _HomeScreenState extends State<HomeScreen> {
                         width: 1.5,
                       ),
                     ),
-                    child: Icon(c.$3,
+                    child: Icon(_iconFor(c.id),
                         size: 22,
                         color: selected ? AppColors.dark : AppColors.grey),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    c.$2,
+                    c.name,
                     style: TextStyle(
                       fontSize: 10,
                       color: selected ? AppColors.ink : AppColors.grey,
@@ -322,7 +331,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _bannerCarousel() {
+  Widget _bannerCarousel(HeroBanner hero) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: ClipRRect(
@@ -333,48 +342,41 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               PageView.builder(
                 controller: _bannerController,
-                itemCount: _banners.length,
+                itemCount: hero.slides,
                 onPageChanged: (i) => setState(() => _bannerIndex = i),
-                itemBuilder: (_, i) {
-                  final b = _banners[i];
-                  return GestureDetector(
-                    onTap: () =>
-                        _openList('Collection', Catalog.byCategory('women')),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        ColoredBox(color: b.$3),
-                        AppImage(b.$2, alignment: Alignment.topCenter),
-                        Positioned(
-                          right: 20,
-                          top: 0,
-                          bottom: 0,
-                          child: Align(
-                            alignment: Alignment.centerRight,
-                            child: Text(
-                              b.$1,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 21,
-                                height: 1.3,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
+                itemBuilder: (_, i) => Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    const ColoredBox(color: Color(0xFFC98B7B)),
+                    AppImage(hero.image, alignment: Alignment.topCenter),
+                    Positioned(
+                      right: 20,
+                      top: 0,
+                      bottom: 0,
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          hero.title.replaceAll(' ', '\n'),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 21,
+                            height: 1.3,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
-                      ],
+                      ),
                     ),
-                  );
-                },
+                  ],
+                ),
               ),
-              if (_banners.length > 1)
+              if (hero.slides > 1)
                 Positioned(
                   left: 0,
                   right: 0,
                   bottom: 10,
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(_banners.length, (i) {
+                    children: List.generate(hero.slides, (i) {
                       final active = i == _bannerIndex;
                       return AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
